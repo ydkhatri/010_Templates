@@ -1,0 +1,44 @@
+//------------------------------------------------
+//--- 010 Editor v8.0.1 Binary Template
+//
+//      File: 
+//   Authors: Yogesh Khatri
+//   Version: 
+//   Purpose: Read Android .data files created by adb backup
+//  Category: 
+// File Mask: .data
+//  ID Bytes: 
+//   History: Last updated Oct 7 2019
+//------------------------------------------------
+
+typedef struct {
+  local int val = 0;
+  char signature[4] <bgcolor=cLtRed>; // "Data"
+  uint Size_Key_Name;
+  uint Size_Data;
+  char Key_Name[Size_Key_Name + 1] <bgcolor=cLtGreen>;
+  if (FTell() % 4 != 0) {
+    FSkip(4 - (FTell()%4)); //padding
+  }
+  if (Size_Data != 0xFFFFFFFF) {
+    byte Data[Size_Data];
+    val = Data[0];
+    if (FTell() % 4 != 0) {
+      FSkip(4 - (FTell()%4)); //padding
+    }
+  }
+} Data <read=ReadData>;
+
+string ReadData(Data & d) {
+  local string ret = d.Key_Name;
+  if (d.Size_Data == 1) {
+    //local int x = int(d.Data[0]);
+    SPrintf(ret, "%s=%d", d.Key_Name, d.val);
+  }
+  return ret;
+}
+
+LittleEndian();
+
+while (!FEof())
+  Data data;
