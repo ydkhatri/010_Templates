@@ -1,0 +1,180 @@
+//------------------------------------------------
+//--- 010 Editor v8.0.1 Binary Template
+//
+//      File: 
+//   Authors: Yogesh Khatri
+//   Version: 0.1
+//   Purpose: Read com.android.calllogbackup.data
+//  Category: 
+// File Mask: 
+//  ID Bytes: 
+//   History: Last updated Oct 14 2019
+//------------------------------------------------
+
+/*
+  Source: from https://github.com/aosp-mirror/platform_frameworks_base/blob/5a8283d7fd8f3dee8d33ae91784a31907200aaa7/core/java/android/provider/CallLog.java#L190
+
+  Call type codes 
+   1 = Incoming
+   2 = Outgoing
+   3 = Missed
+   4 = voicemail
+   5 = Rejected / Declined
+   6 = Blocked
+   7 = Answered_Externally
+  
+  Block reasons
+   1 = Screening service
+   2 = Direct to voicemail
+   3 = Blocked number
+   4 = Unknown number (when all unknowns are blocked)
+   5 = Restricted number
+   6 = Payphone
+   7 = Not in contacts
+
+  Presentation
+   1 = Allowed
+   2 = Restricted
+   3 = Unknown
+   4 = Payphone
+
+*/
+
+typedef struct {
+  BigEndian();
+  uint   version; //  1007 (0x03ef) & 1005 seen
+  int64  timestamp <read=ReadTS>;
+  uint64 duration_in_sec <read=ReadDuration>;
+  byte   is_num_present;
+  if (is_num_present) {
+    ushort num_len;
+    if (num_len == 0)
+      local string num = "Private";
+    else
+      char   num[num_len];
+  }
+  uint   type <read=ReadCallType>;// call status
+  uint   presentation <read=ReadPresentation>;
+  byte   is_servicename_present; // 1
+  if (is_servicename_present) {
+    ushort servicename_len;
+    char   servicename[servicename_len];
+  }
+  byte   is_iccid_present; // 1
+  if (is_iccid_present) {
+    ushort iccid_len;
+    char   iccid[iccid_len];
+  }
+  byte   is_own_num_present;
+  if (is_own_num_present) {
+    ushort own_num_len;
+    char   own_num[own_num_len];
+  }
+  byte   unk3[12];
+  ushort oem_ns_len;
+  char   oem_ns[oem_ns_len];
+  uint   unk4;
+  uint   unk5;
+  if (version == 1007) {
+    FSkip(0xA);
+    uint   block_reason <read=ReadBlockReason>;
+  }
+  LittleEndian();
+} CallRecord ;
+
+string ReadCallType( uint & type) {
+  local string ret;
+  switch (type) {
+    case 1 : ret = "Incoming"; break;
+    case 2 : ret = "Outgoing"; break;
+    case 3 : ret = "Missed"; break;
+    case 4 : ret = "Voicemail"; break;
+    case 5 : ret = "Rejected"; break;
+    case 6 : ret = "Blocked"; break;
+    case 7 : ret = "Answered_Externally"; break;
+    default : SPrintf(ret, "UNKNOWN type(%d)", type);
+  }
+  return ret;
+}
+
+string ReadBlockReason( uint & reason) {
+  local string ret;
+  switch (reason) {
+    case 0 : ret = ""; break;
+    case 1 : ret = "Screening service"; break;
+    case 2 : ret = "Direct to voicemail"; break;
+    case 3 : ret = "Blocked number"; break;
+    case 4 : ret = "Unknown number"; break;
+    case 5 : ret = "Restricted number"; break;
+    case 6 : ret = "Payphone"; break;
+    case 7 : ret = "Not in contacts"; break;
+    default : SPrintf(ret, "UNKNOWN reason(%d)", reason);
+  }
+  return ret;
+}
+
+string ReadPresentation( uint & pr) {
+  local string ret;
+  switch (pr) {
+    case 1 : ret = "Allowed"; break;
+    case 2 : ret = "Restricted"; break;
+    case 3 : ret = "Unknown"; break;
+    case 4 : ret = "Payphone"; break;
+    default : SPrintf(ret, "UNKNOWN presentation(%d)", reason);
+  }
+  return ret;
+}
+
+string ReadTS( int64 & t ) {
+  return TimeTToString( t/1000 );
+}
+
+string ReadDuration( uint64 & t ) {
+  local int min = t/60;
+  local int hrs = min/60;
+  local int sec = t % 60;
+  local string s = "";
+  SPrintf(s, "%02d:%02d:%02d", hrs, min, sec);
+  return s;
+}
+
+///// DATA Envelope
+
+typedef struct {
+  char signature[4] <bgcolor=cLtRed>; // "Data"
+  uint Size_Key_Name;
+  uint Size_Data;
+  char Key_Name[Size_Key_Name + 1] <bgcolor=cLtGreen>;
+  if (FTell() % 4 != 0) {
+    FSkip(4 - (FTell()%4)); //padding
+  }
+  if (Size_Data != 0xFFFFFFFF) {
+    local uint64 pos = FTell();
+    CallRecord call_rec;
+    if (FTell() - pos < Size_Data) 
+      FSeek(Size_Data + pos);
+    if (FTell() % 4 != 0) {
+      FSkip(4 - (FTell()%4)); //padding
+    }
+  }
+} Data <read=ReadData>;
+
+string ReadData(Data & d) {
+  local string ret = d.Key_Name;
+
+  SPrintf(ret, "%s, num=%s, type=%s,  Date=%s, %s, UNK=%d,%d",  
+           d.Key_Name, 
+           d.call_rec.num, 
+           ReadCallType(d.call_rec.type), 
+           ReadTS(d.call_rec.timestamp), 
+           d.call_rec.version == 1007 ? ReadBlockReason(d.call_rec.block_reason) : "", 
+           d.call_rec.unk4, 
+           d.call_rec.unk5
+         );
+  return ret;
+}
+
+LittleEndian();
+
+while (!FEof())
+  Data data;
